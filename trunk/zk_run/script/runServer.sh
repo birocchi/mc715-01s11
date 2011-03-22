@@ -32,4 +32,5 @@ fi
 
 bin_path=$(dirname $0)/../bin/
 
-$bin_path/zkServer.sh $1 zk$n.cfg
+$bin_path/zkServer.sh $1 zk$n.cfg >/dev/null
+
