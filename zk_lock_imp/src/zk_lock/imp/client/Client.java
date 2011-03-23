@@ -83,7 +83,7 @@ public class Client extends Thread implements Watcher
 			e1.printStackTrace();
 		}
 		
-		System.out.println("Conexão estabelescida.");
+		System.out.println("Conexão estabelecida.");
 		
 		try
 		{
