@@ -75,7 +75,7 @@ public class Client extends Thread implements Watcher
 		try
 		{
 			while (zk.getState() != States.CONNECTED)
-			sleep(10000);
+			sleep(500);
 		} 
 		catch (InterruptedException e1)
 		{
@@ -95,19 +95,25 @@ public class Client extends Thread implements Watcher
 				if (args.length < 2)
 				{
 					System.out.println("Usage:");
+					System.out.println("[lock | unlock] /lockname");
 				}
 				else
 				{
 					String arg = args[1];
 					
-					if (cmd == "lock")
-					{					
-						lock(arg);
-					}
-					else if (cmd == "unlock")
+					if (arg.charAt(0) != '/')
+						System.out.println("Lock deve começar com /");
+					else					
 					{
-						unlock(arg);
-					}	
+						if (cmd.equals("lock"))
+						{					
+							lock(arg);
+						}
+						else if (cmd.equals("unlock"))
+						{
+							unlock(arg);
+						}	
+					}
 				}
 			}
 		} 
@@ -134,13 +140,9 @@ public class Client extends Thread implements Watcher
 	{
 		WriteLock lock = new WriteLock(zk, arg, null);
 		
-		if (!lock.isOwner())
-			System.out.println("Você não pode liberar um lock que não possui");
-		else
-		{
-			lock.unlock();
-			System.out.println("Lock " + arg + " liberado");
-		}
+		System.out.println("Liberando lock " + arg + "...");
+		lock.unlock();
+		System.out.println("Lock " + arg + " liberado");
 	}
 
 	private void lock(String arg)
@@ -153,6 +155,8 @@ public class Client extends Thread implements Watcher
 		{
 			try
 			{
+				System.out.println("Obtendo lock " + arg + "...");
+				
 				if (lock.lock())
 					System.out.println("Lock " + arg + " obtido com sucesso");
 				else
