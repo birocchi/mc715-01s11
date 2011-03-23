@@ -1,6 +1,12 @@
 package zk_lock.imp;
 
 import java.io.IOException;
+
+import org.apache.log4j.ConsoleAppender;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+import org.apache.log4j.SimpleLayout;
+
 import zk_lock.imp.client.Client;
 
 public class Main
@@ -18,7 +24,7 @@ public class Main
 		
 		String host = args[0];
 		int port;
-		Client c;
+		Client c;	
 		
 		try
 		{

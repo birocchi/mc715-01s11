@@ -3,10 +3,16 @@ package zk_lock.imp.client;
 import java.io.IOException;
 import java.util.List;
 
+import org.apache.log4j.ConsoleAppender;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+import org.apache.log4j.SimpleLayout;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
+
+import zk_lock.imp.Main;
 
 public class Client implements Watcher
 {
@@ -32,6 +38,7 @@ public class Client implements Watcher
 		connString.setLength(connString.length() - 1);		
 		
 		zk = new ZooKeeper(connString.toString(), 3000, this);
+				
 		
 		dead = false;
 	}
@@ -39,6 +46,8 @@ public class Client implements Watcher
 	@Override
 	public void process(WatchedEvent event)
 	{
+		System.out.println("evento");
+		
 		if (event.getType() == Event.EventType.None)
 		{
 			// estado da conexao mudou
