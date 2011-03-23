@@ -10,8 +10,7 @@ then
 
     for node in ${nodes[@]}
     do
-      echo Issuing $1 over ssh to $node
-      ssh $node "$dir/runServer.sh $1"
+      ssh $node "cd $PWD;$dir/runServer.sh $1;"
     done
 
 else
