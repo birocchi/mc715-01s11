@@ -2,11 +2,6 @@ package zk_lock.imp;
 
 import java.io.IOException;
 
-import org.apache.log4j.ConsoleAppender;
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-import org.apache.log4j.SimpleLayout;
-
 import zk_lock.imp.client.Client;
 
 public class Main
@@ -31,6 +26,8 @@ public class Main
 			port = Integer.parseInt(args[1]);
 			c = new Client(new String[] { host } , port);
 
+			c.start();
+			
 			// esperamos cliente morrer
 			while (!c.getDead())
 				Thread.sleep(1000);
