@@ -87,7 +87,7 @@ public class Client extends Thread implements Watcher
 		
 		try
 		{
-			while ((line = stdin.readLine().toLowerCase()) != "quit")
+			while (!(line = stdin.readLine().toLowerCase()).equals("quit"))
 			{
 				String[] args = line.split(" "); 
 				String cmd = args[0];
@@ -95,6 +95,7 @@ public class Client extends Thread implements Watcher
 				if (args.length < 2)
 				{
 					System.out.println("Usage:");
+					System.out.println("quit");
 					System.out.println("[lock | unlock] /lockname");
 				}
 				else
@@ -161,6 +162,11 @@ public class Client extends Thread implements Watcher
 					System.out.println("Lock " + arg + " obtido com sucesso");
 				else
 					System.out.println("Lock " + arg + " não foi obtido");
+				
+				if (lock.isOwner())
+					System.out.println("Sou dono do lock " + arg);
+				else
+					System.out.println("Sou NAO dono do lock " + arg);		
 			} 
 			catch (KeeperException e)
 			{
