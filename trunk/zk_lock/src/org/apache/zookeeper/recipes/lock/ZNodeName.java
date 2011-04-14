@@ -74,6 +74,11 @@ class ZNodeName implements Comparable<ZNodeName> {
     }
 
     public int compareTo(ZNodeName that) {
+	int s1 = this.sequence;
+	int s2 = that.sequence;    
+	int answer = s1 == -1 ? 1 : s2 == -1 ? -1 : s1 - s2;
+	return answer;
+	/*
         int answer = this.prefix.compareTo(that.prefix);
         if (answer == 0) {
             int s1 = this.sequence;
@@ -84,6 +89,7 @@ class ZNodeName implements Comparable<ZNodeName> {
             answer = s1 == -1 ? 1 : s2 == -1 ? -1 : s1 - s2;
         }
         return answer;
+	*/
     }
 
     /**
