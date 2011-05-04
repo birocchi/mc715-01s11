@@ -147,11 +147,13 @@ public class WriteLock extends ProtocolSupport {
      */
     private class LockWatcher implements Watcher {
         public void process(WatchedEvent event) {
+	    System.out.println("acordei!");
             // lets either become the leader or watch the new/updated node
             LOG.debug("Watcher fired on path: " + event.getPath() + " state: " + 
                     event.getState() + " type " + event.getType());
             try {
-                lock();
+		if(id != null)
+		    lock();
             } catch (Exception e) {
                 LOG.warn("Failed to acquire lock: " + e, e);
             }
