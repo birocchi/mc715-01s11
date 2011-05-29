@@ -1,24 +1,25 @@
-package zk_lock.imp.client;
+package zk_tpcp.imp.client;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooKeeper.States;
-import org.apache.zookeeper.recipes.lock.WriteLock;
+import org.apache.zookeeper.recipes.tpcp.TransactionGroup;
 
 public class Client extends Thread implements Watcher
 {
     private ZooKeeper zk;
     private volatile boolean dead;
-    private LinkedList<WriteLock> lockList;
 	private LinkedList<String> listnerMessages;
-    
+	private ArrayList<TransactionGroup> groupList;
+
+	
     /* properties */	
     public boolean getDead()
     {
@@ -43,8 +44,8 @@ public class Client extends Thread implements Watcher
 
 		dead = false;		
 		zk = new ZooKeeper(connString.toString(), 3000, this);
-		lockList = new LinkedList<WriteLock>(); 
 		listnerMessages = new LinkedList<String>();
+		groupList = new ArrayList<TransactionGroup>();
     }
 		
     @Override
@@ -125,11 +126,7 @@ public class Client extends Thread implements Watcher
 				    }
 					else if (args.length == 1)
 					{					
-						if(cmd.equals("owner"))
-					    {
-							owner();
-					    }
-						else if (cmd.equals("quit"))
+						if (cmd.equals("quit"))
 						{
 							break;
 						}
@@ -146,13 +143,13 @@ public class Client extends Thread implements Watcher
 						    System.out.println("Lock must start with /");
 						else
 						{
-							if (cmd.equals("lock"))
+							if (cmd.equals("join"))
 						    {					
-								lock(arg);
+								join(arg);
 						    }
-							else if (cmd.equals("unlock"))
+							else if (cmd.equals("leave"))
 						    {
-								unlock(arg);
+								leave(arg);
 						    }
 							else if (cmd.equals("ls"))
 						    {
@@ -193,10 +190,9 @@ public class Client extends Thread implements Watcher
 	private void usage()
     {
     	System.out.println("Usage:");
-		System.out.println("lock /lockname - try to get lock 'lockname'");
-		System.out.println("unlock /lockname - free lock 'lockname'");
-		System.out.println("ls /path - show lock list on 'lockname'");
-		System.out.println("owner - show current pending or held locks");
+		System.out.println("join /groupPath - join group");
+		System.out.println("leave /groupPath - leave group");
+		System.out.println("ls /path - show znode list on 'path'");
 		System.out.println("quit - exits");
     }
     
@@ -214,86 +210,46 @@ public class Client extends Thread implements Watcher
 		}		
 	}
 	
-	private void owner()
+	private void join(String arg)
 	{
-		if (lockList.isEmpty())
-			System.out.println("You don't have or are waiting on any lock.");
-
-		for(WriteLock wl : lockList)
+		try
 		{
-			System.out.print(wl.getId());
+			TransactionGroup tg = TransactionGroup.joinGroup(arg, zk);
 			
-			if (wl.isOwner())
-				System.out.println(" HELD");
-			else
-				System.out.println(" WAITING");
+			groupList.add(tg);
+		}
+		catch(Exception e)
+		{
+			e.printStackTrace();
 		}
 	}
 	
-    private WriteLock getLock(String lockpath)
-    {
-    	for(WriteLock wl : lockList)
-    		if (wl.getDir().equals(lockpath))
-    			return wl;
-    	
-    	return null;
-    }
-    
-    private void unlock(String arg)
-    {
-    	WriteLock wl = getLock(arg);
-    	
-		if (wl == null)
-			System.out.println("You don't hold (or are waiting on) lock " + arg);
-		else
+	private void leave(String arg)
+	{
+		try
 		{
-			if (wl.isOwner())
-				System.out.print("I own lock " + arg + ". Freeing lock...");
+			TransactionGroup g = null;
+			
+			for (TransactionGroup tg : groupList)
+			{
+				if (tg.getGroupPath().equals(arg))
+				{
+					g = tg;
+					break;
+				}
+			}
+			
+			if (g == null)
+				System.out.println("You aren't a member of '" + arg + "'.");
 			else
-				System.out.print("I DON'T own lock " + arg + ". Leaving wait state...");
-			
-			wl.unlock();
-			
-			lockList.remove(wl);
-			
-			System.out.println("DONE");
+			{
+				g.leaveGroup();
+				groupList.remove(g);
+			}
 		}
-    }
-
-    private void lock(String arg)
-    {
-    	WriteLock wl = getLock(arg);
-			
-		if (wl != null)
+		catch(Exception e)
 		{
-			if (wl.isOwner())
-				System.out.println("You already hold lock " + arg);
-			else
-				System.out.println("You are already waiting for lock " + arg);
+			e.printStackTrace();
 		}
-		else
-	    {
-			LockListner ll = new LockListner(this, arg);
-			wl = new WriteLock(zk, arg, null, ll);
-			lockList.add(wl);
-			
-			try
-		    {
-				System.out.print("Trying to get lock " + arg + "...");
-					
-				if (wl.lock())
-				    System.out.println("LOCK ACQUIRED");
-				else
-				    System.out.println("WAITING ON LOCK");
-		    }
-			catch (KeeperException e)
-		    {
-				e.printStackTrace();
-		    } 
-			catch (InterruptedException e)
-		    {
-				e.printStackTrace();
-		    }
-	    }
-    }
+	}
 }

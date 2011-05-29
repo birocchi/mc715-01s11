@@ -1,8 +1,8 @@
-package zk_lock.imp;
+package zk_tpcp.imp;
 
 import java.io.IOException;
 
-import zk_lock.imp.client.Client;
+import zk_tpcp.imp.client.Client;
 
 public class Main
 {
