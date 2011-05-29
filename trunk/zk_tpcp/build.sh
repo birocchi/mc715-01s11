@@ -1,2 +1,3 @@
-javac -d . -cp "../../../../../../lib/*" *.java
-jar cf ../../../../../../zk_lock.jar org/*
+javac -d bin -cp "lib/*" -g src/org/apache/zookeeper/recipes/tpcp/*
+jar cf zk_tpcp.jar -C bin/ .
+
