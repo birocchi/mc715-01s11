@@ -18,7 +18,6 @@ public class Client extends Thread implements Watcher
     private volatile boolean dead;
 	private LinkedList<String> listnerMessages;
 	private ArrayList<TransactionGroup> groupList;
-
 	
     /* properties */	
     public boolean getDead()
@@ -214,7 +213,7 @@ public class Client extends Thread implements Watcher
 	{
 		try
 		{
-			TransactionGroup tg = TransactionGroup.joinGroup(arg, zk);
+			TransactionGroup tg = TransactionGroup.joinGroup(arg, zk, new TransactionHandler() );
 			
 			groupList.add(tg);
 		}

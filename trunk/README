@@ -1,0 +1,7 @@
+zk_lock -> src da implementacao do lock
+
+zl_lock_imp -> nossa implementacao de alguma coisa usando a biblioteca de lock do zk
+
+zookeeper-3.3.2 -> apenas jars contendo bibliotecas
+
+zk_run -> essencial para inciar servidores
