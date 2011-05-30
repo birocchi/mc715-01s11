@@ -9,21 +9,34 @@ import java.util.List;
  */
 class CoordinatorTransaction extends BaseTransaction 
 {
-	private List<GroupMember> allowedParticipants;
+	private List<GroupMember> participants;
 	
 	public CoordinatorTransaction(Serializable query, GroupMember coordinator,
-			List<GroupMember> allowedParticipants) 
+			List<GroupMember> participants) throws InterruptedException 
 	{
-		super(query, coordinator, allowedParticipants);
+		super(query, coordinator, participants);
 		
-		this.allowedParticipants = allowedParticipants;
+		this.participants = participants;
 	}
 	
 	/**
 	 * Blocking call to coordinate transaction (begin to end)
 	 */
-	public void coordinate()
+	private void coordinate() throws InterruptedException
 	{
 		// TODO coordinate
+	}
+	
+	@Override
+	public void run()
+	{
+		try
+		{
+			coordinate();
+		} 
+		catch (InterruptedException e)
+		{
+			// TODO handle this
+		}
 	}
 }

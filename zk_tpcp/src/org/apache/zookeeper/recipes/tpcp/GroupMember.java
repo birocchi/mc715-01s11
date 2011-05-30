@@ -31,7 +31,7 @@ public class GroupMember
 	 */
 	public String getZnodePath()
 	{		
-		return group.getGroupPath() + "/" + TransactionGroup.groupZnode + name;
+		return group.getGroupPath() + "/" + TransactionGroup.groupZnode + "/" + name;
 	}
 	
 	/**

@@ -2,20 +2,33 @@ package org.apache.zookeeper.recipes.tpcp;
 
 import java.io.Serializable;
 import java.security.InvalidParameterException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
+import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
+import java.util.SortedSet;
+import java.util.concurrent.ExecutorService;
 
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooKeeper.States;
+import org.apache.zookeeper.data.ACL;
+
+import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 // TODO set watcher on transaction node and call participate
+// TODO make facade class for znode operations
+// TODO use ACL nicely to improve nodes access
+// TODO handler exceptions
 
 /**
  * Transaction group
@@ -23,15 +36,19 @@ import org.apache.zookeeper.ZooKeeper.States;
  */
 public final class TransactionGroup
 {
-	static final String groupZnode = "g/";
+	static final String groupZnode = "g";
+	static final String transactionZnode = "t";
 	
-	private Object syncLock; 
 	private String groupPath;
 	private GroupMember me;
 	private ZooKeeper zkClient;
 	private TransactionGroupWatcher watcher;
-	private List<GroupMember> members;
+	private Hashtable<String, GroupMember> members;
 	private ITransactionHandler handler;
+	private boolean disposed;
+	private long lastTransactionID;
+	private Object transactionSyncLock;
+	private ExecutorService threadPool;
 	
 	private TransactionGroup(String groupPath, ZooKeeper zkClient, ITransactionHandler handler)
 	{
@@ -39,8 +56,12 @@ public final class TransactionGroup
 		this.zkClient = zkClient;
 		this.watcher = new TransactionGroupWatcher(this);
 		this.me = new GroupMember(new Long(zkClient.getSessionId()).toString(), this);
-		this.syncLock = new Object();
 		this.handler = handler;
+		this.members = new Hashtable<String, GroupMember>();
+		this.disposed = false;
+		this.lastTransactionID = 0;
+		this.transactionSyncLock = new Object();
+		this.threadPool = java.util.concurrent.Executors.newCachedThreadPool();
 	}
 	
 	/**
@@ -48,7 +69,7 @@ public final class TransactionGroup
 	 * @throws InterruptedException 
 	 */
 	private void createGroup() throws InterruptedException
-	{
+	{		
 		// verifies if group path exists
 		try 
 		{
@@ -58,7 +79,7 @@ public final class TransactionGroup
 				try
 				{
 					// we need a persistent node so it can have children
-					zkClient.create(groupPath, null, null, CreateMode.PERSISTENT);
+					zkClient.create(groupPath, null, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 				}
 				catch(KeeperException zkEx)
 				{
@@ -72,14 +93,35 @@ public final class TransactionGroup
 			}
 			
 			// now we create the group member node
-			String groupMemberZnode = groupPath + groupZnode;
+			String groupMemberZnode = groupPath + "/" + TransactionGroup.groupZnode;
 			// if group member node does not exists, we create a new one
 			if (zkClient.exists(groupMemberZnode, false) == null)
 			{
 				try
 				{
 					// we need a persistent node so it can have children
-					zkClient.create(groupMemberZnode, null, null, CreateMode.PERSISTENT);
+					zkClient.create(groupMemberZnode, null, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+				}
+				catch(KeeperException zkEx)
+				{
+					// if someone created before us, just ignore and continue (Code.NODEEXISTS)
+					// otherwise, something unexpected occurred
+					if (zkEx.code() != Code.NODEEXISTS)
+					{
+						throw zkEx;
+					}
+				}
+			}
+			
+			// now we create the transaction node
+			String transactionZnode = groupPath + "/" + TransactionGroup.transactionZnode;
+			// if transaction node does not exists, we create a new one
+			if (zkClient.exists(transactionZnode, false) == null)
+			{
+				try
+				{
+					// we need a persistent node so it can have children
+					zkClient.create(transactionZnode, null, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 				}
 				catch(KeeperException zkEx)
 				{
@@ -111,7 +153,7 @@ public final class TransactionGroup
 		try
 		{
 			// create our znode under group
-			zkClient.create(me.getZnodePath(), null, null, CreateMode.EPHEMERAL);
+			zkClient.create(me.getZnodePath(), null,  ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
 		}
 		catch(KeeperException zkEx)
 		{
@@ -124,6 +166,12 @@ public final class TransactionGroup
 				// TODO: do something
 			}
 		}
+		
+		// get group members
+		updateMembers();
+		
+		// watch new transactions
+		updateTransactions();
 	}
 	
 	/**
@@ -134,9 +182,13 @@ public final class TransactionGroup
 	{
 		List<String> membersName = null;
 		
+		// avoid updating members after we left group
+		if (disposed)
+			return;
+		
 		try 
 		{
-			membersName = zkClient.getChildren(groupPath, watcher);
+			membersName = zkClient.getChildren(groupPath + "/" + groupZnode, watcher);
 		} 
 		catch (KeeperException e) 
 		{
@@ -146,13 +198,111 @@ public final class TransactionGroup
 			return;
 		}
 		
-		synchronized (this.syncLock) 
+		synchronized (this.members) 
 		{
-			// TODO fazer lista de membros
-		//	this.members = members;
+			// TODO make this not so stupiditly slow
+					
+			Enumeration<String> keys = members.keys();
+
+			// remove those members who left the group	
+			while (keys.hasMoreElements())
+			{
+				String m = keys.nextElement();
+				
+				// if we have some members who isn't on recent member list, we should remove it
+				if (!membersName.contains(m))
+					members.remove(m);
+			}
+			
+			// add those members we don't have
+			for (String m : membersName)
+			{
+				// if we don't have this member, we should add it
+				if (!members.contains(m))
+					members.put(m, new GroupMember(m, this));
+			}
 		}
 	}
 	
+	/**
+	 * Update transactions
+	 * @throws InterruptedException
+	 */
+	private void updateTransactions() throws InterruptedException
+	{
+		// avoid updating transaction after we left group
+		if (disposed)
+			return;
+		
+		List<String> transactions = null;
+		
+		try 
+		{
+			transactions = zkClient.getChildren(groupPath + "/" + transactionZnode, watcher);
+		} 
+		catch (KeeperException e) 
+		{
+			// TODO: handle this
+			
+			// actually we are ignoring transactions when we got an error and those should be aborted by timeout (if we must participate)
+			return;
+		}
+		
+		// sort transactions
+		BaseTransaction.sortTransactionList(transactions);
+		
+		synchronized (this.transactionSyncLock)
+		{
+			long tid = 0;
+			
+			// for each transaction
+			for (String t : transactions)
+			{
+				tid = BaseTransaction.getTransactionID(t);
+				
+				// we try to avoid double reads
+				if (tid > lastTransactionID)
+				{
+					// we can't stall here as we're holding a lock
+					participate(t);
+				}
+			}
+			
+			// avoid setting transactionID every loop iteration
+			if (tid > lastTransactionID)
+				lastTransactionID = tid;
+		}		
+	}
+	
+	/**
+	 * Participate on some ongoing transaction.
+	 * @throws InterruptedException 
+	 */
+	private void participate(String transactionZnode) throws InterruptedException
+	{
+		// TODO create waiting transaction for execution list to avoid stalling (see updateTransactions) 
+		ParticipantTransaction pt = new ParticipantTransaction(transactionZnode, me, handler);		
+		
+		queueTransaction(pt);
+	}
+	
+	/**
+	 * Queue a transaction for execution as soon as possible
+	 * @param transaction
+	 */
+	private void queueTransaction(BaseTransaction transaction)
+	{
+		synchronized (this.transactionSyncLock)
+		{
+			// TODO review this call - execute may run on this thread, we'd like to avoid that and queue calls
+			threadPool.execute(transaction);
+		}
+	}
+	
+	/////////////////////////////
+	//// PUBLIC MEMBERS  ////////
+	/////////////////////////////
+
 	@Override
 	public boolean equals(Object obj)
 	{
@@ -165,19 +315,6 @@ public final class TransactionGroup
 	}
 	
 	/**
-	 * Participate on some ongoing transaction.
-	 */
-	private void participate(String transactionZnode)
-	{
-		ParticipantTransaction pt = new ParticipantTransaction(transactionZnode, handler);		
-		pt.participate();
-	}
-	
-	/////////////////////////////
-	//// PUBLIC MEMBERS  ////////
-	/////////////////////////////
-	
-	/**
 	 * Get this group's znode path.
 	 */
 	public String getGroupPath()
@@ -186,12 +323,33 @@ public final class TransactionGroup
 	}
 	
 	/**
+	 * Package visibility zk client
+	 * @return
+	 */
+	ZooKeeper getZkClient()
+	{
+		return zkClient;
+	}
+	
+	/**
 	 * Get a collection of member in this
 	 */
-	public Iterator<GroupMember> getMembers()
+	public List<GroupMember> getMembers()
 	{
-		// TODO todo
-		return null;
+		ArrayList<GroupMember> mlist;
+		
+		// we have to copy data to avoid anachronical reads
+		synchronized (members)
+		{		
+			mlist = new ArrayList<GroupMember>(members.size());
+			
+			Enumeration<GroupMember> m = members.elements();
+			
+			while (m.hasMoreElements())
+				mlist.add(m.nextElement());
+		}
+		
+		return mlist;
 	}
 	
 	/**
@@ -200,7 +358,7 @@ public final class TransactionGroup
 	 */
 	public void leaveGroup() throws InterruptedException
 	{
-		if (zkClient == null)
+		if (disposed)
 			return;
 		
 		try 
@@ -212,6 +370,7 @@ public final class TransactionGroup
 			// TODO do something
 		}
 		
+		disposed = true;
 		zkClient = null;
 		watcher.die();
 		watcher = null;
@@ -221,17 +380,18 @@ public final class TransactionGroup
 	
 	/**
 	 * Call for a distributed transaction to be executed on peers - 
-	 * you cannot vote as it's assumed 'commit'
+	 * you cannot vote as it's assumed you've 'pre-committed'
 	 * @param query query object to be executed (may be as simple as a string)
 	 * @param allowedParticipants group members allowed to participated the transaction. Use null for an everyone transaction.
 	 * @return transaction object for manipulating the query
+	 * @throws InterruptedException 
 	 */
-	public ITransaction BeginTransaction(Serializable query, List<GroupMember> allowedParticipants)
+	public ITransaction BeginTransaction(Serializable query, List<GroupMember> allowedParticipants) throws InterruptedException
 	{
 		CoordinatorTransaction ct = new CoordinatorTransaction(query, me, allowedParticipants);
 		
-		ct.coordinate();
-		
+		queueTransaction(ct);
+				
 		return ct;
 	}
 	
@@ -258,9 +418,9 @@ public final class TransactionGroup
 	
 	
 	/////////////////////////////
-	//// WATCHER  ///////////////
+	//// WATCHERS  ///////////////
 	/////////////////////////////
-	
+		
 	/**
 	 * Watcher for group member's updates
 	 *
@@ -269,11 +429,49 @@ public final class TransactionGroup
 	{
 		private TransactionGroup group;
 		private boolean die;		
+		private String groupMemberZnodePath;
+		private String transactionZnodePath;
 		
 		public TransactionGroupWatcher(TransactionGroup group)
 		{
 			this.group = group;
 			this.die = false;
+			this.groupMemberZnodePath = group.getGroupPath() + "/" + TransactionGroup.groupZnode;
+		}
+		
+		/***
+		 * Process group membership events
+		 * @param event
+		 */
+		private void processGroupMembers(WatchedEvent event)
+		{
+			if (event.getType() == EventType.NodeChildrenChanged)
+			{
+				try 
+				{
+					group.updateMembers();
+				} 
+				catch (InterruptedException e) 
+				{
+					// TODO: do something - this is critical, we need to reestablish the watcher
+				}
+			}
+		}
+		
+		/**
+		 * Process transaction's events
+		 * @param event
+		 */
+		private void processTransactions(WatchedEvent event)
+		{
+			try 
+			{
+				group.updateTransactions();
+			} 
+			catch (InterruptedException e) 
+			{
+				// TODO: do something - this is critical, we need to reestablish the watcher
+			}
 		}
 		
 		/**
@@ -291,16 +489,16 @@ public final class TransactionGroup
 			if (die)
 				return;
 			
-			if (event.getType() == EventType.NodeChildrenChanged)
+			String fullPath = event.getPath();
+			String path = fullPath.substring(fullPath.lastIndexOf('/') + 1);
+			
+			if (path.equals(TransactionGroup.groupZnode))
+				processGroupMembers(event);
+			else if (path.equals(TransactionGroup.transactionZnode))
+				processTransactions(event);
+			else
 			{
-				try 
-				{
-					group.updateMembers();
-				} 
-				catch (InterruptedException e) 
-				{
-					// TODO: do something - this is critical, we need to reestablish the watcher
-				}
+				// TODO log programming error? lol
 			}
 		}
 
