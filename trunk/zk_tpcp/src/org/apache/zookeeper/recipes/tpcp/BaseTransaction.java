@@ -13,6 +13,7 @@ import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.data.Stat;
 
@@ -105,7 +106,15 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		}
 		catch(KeeperException zkEx)
 		{
-			// TODO handle this
+			if(Code.NONODE.equals(zkEx.code())){
+				System.out.println("Could not create the znode '" + zNodePath + "', the node doesn't have a parent in the Zookeeper.");
+			}
+			else if (Code.NODEEXISTS.equals(zkEx.code())){
+				System.out.println("Could not create the znode '" + zNodePath + "', the node already exists.");
+			}
+			else {
+				System.out.println("Error while trying to create the znode '" + zNodePath + "'.");
+			}
 		}
 	}
 	
@@ -133,7 +142,12 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		}
 		catch(KeeperException zkEx)
 		{
-			// TODO handle this
+			if(Code.NONODE.equals(zkEx.code())){
+				System.out.println("Could not get the data of the znode '" + zNodePath + "', the node doesn't exist.");
+			}
+			else {
+				System.out.println("Error while processing the znode '" + zNodePath + "'.");
+			}
 		}
 	}
 	
@@ -152,7 +166,6 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		} 
 		catch (KeeperException e)
 		{
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -254,7 +267,15 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		}
 		catch(KeeperException zkEx)
 		{
-			// TODO handle this
+			if(Code.NONODE.equals(zkEx.code())){
+				System.out.println("Could not create the participant znode, the node doesn't have a parent in the Zookeeper.");
+			}
+			else if (Code.NODEEXISTS.equals(zkEx.code())){
+				System.out.println("Could not create the participant znode, the node already exists.");
+			}
+			else {
+				System.out.println("Error while trying to create the znode '" + zNodePath + "'.");
+			}
 		}
 	}
 	
@@ -288,7 +309,12 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		}
 		catch(KeeperException zkEx)
 		{
-			// TODO handle this
+			if(Code.NONODE.equals(zkEx.code())){
+				System.out.println("Could not get the data of the znode '" + zNodePath + "', the node doesn't exist.");
+			}
+			else {
+				System.out.println("Error while processing the znode '" + zNodePath + "'.");
+			}
 		}
 		
 		return data;
