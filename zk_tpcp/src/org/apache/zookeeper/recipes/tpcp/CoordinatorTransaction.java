@@ -6,6 +6,7 @@ import java.util.List;
 
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.Watcher.Event.EventType;
 
 /**
@@ -170,7 +171,12 @@ class CoordinatorTransaction extends BaseTransaction
 		}
 		catch (KeeperException e)
 		{
-			// TODO handle this
+			if(Code.NONODE.equals(e.code())){
+				System.out.println("Could not get the children of the znode '" + zNodePath + "', the node doesn't exist.");
+			}
+			else {
+				System.out.println("Error while trying to get the children of the znode '" + zNodePath + "'.");
+			}
 		}
 		
 		return everyOneIn;
@@ -193,7 +199,7 @@ class CoordinatorTransaction extends BaseTransaction
 		} 
 		catch (InterruptedException e)
 		{
-			// TODO handle this
+			System.out.println("Coordinator was interrupted while working, no coordination is being done!");
 		}
 	}
 	

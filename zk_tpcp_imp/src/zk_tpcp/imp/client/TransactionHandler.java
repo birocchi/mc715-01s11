@@ -40,7 +40,6 @@ public class TransactionHandler implements ITransactionHandler
 			} 
 			catch (IOException e)
 			{
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 			
