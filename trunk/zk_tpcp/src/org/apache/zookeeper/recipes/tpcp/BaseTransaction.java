@@ -112,7 +112,7 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	private void readZnode() throws InterruptedException
 	{
 		try
-		{
+		{			
 			Stat s = zkClient.exists(zNodePath, false);
 			
 			if (s == null)

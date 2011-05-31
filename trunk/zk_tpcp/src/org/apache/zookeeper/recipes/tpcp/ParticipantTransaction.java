@@ -15,7 +15,7 @@ class ParticipantTransaction extends BaseTransaction
 	private ITransactionHandler handler;
 	
 	public ParticipantTransaction(String zNodeTransaction, GroupMember participant, ITransactionHandler handler) throws InterruptedException
-	{
+	{		
 		super(zNodeTransaction, participant);
 		this.handler = handler;
 	}
@@ -166,9 +166,11 @@ class ParticipantTransaction extends BaseTransaction
 	
 	private void finish()
 	{
+		long id = BaseTransaction.getTransactionID(zNodePath);
+		
 		decisionReached();
 		
-		handler.result(BaseTransaction.getTransactionID(zNodePath), state == TransactionState.COMMITTED);
+		handler.result(id, state == TransactionState.COMMITTED);
 		handler = null;
 	}
 
