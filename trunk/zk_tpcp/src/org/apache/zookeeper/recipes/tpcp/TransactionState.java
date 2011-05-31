@@ -21,14 +21,7 @@ enum TransactionState
 	/**
 	 * Aborted.
 	 */
-	ABORTED
-	{
-		@Override
-		public String toString()
-		{
-			return "a";
-		}
-	},
+	ABORTED,
 	
 	/**
 	 * Committed locally
@@ -38,17 +31,10 @@ enum TransactionState
 	/**
 	 * Fully committed on all peers.
 	 */
-	COMMITTED
-	{
-		@Override
-		public String toString()
-		{
-			return "c";
-		}
-	};
+	COMMITTED;
 	
 	public static TransactionState parse(String state)
-	{
+	{	
 		return TransactionState.valueOf(state);
 	}
 }

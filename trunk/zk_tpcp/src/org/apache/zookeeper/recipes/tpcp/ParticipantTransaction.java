@@ -2,11 +2,8 @@ package org.apache.zookeeper.recipes.tpcp;
 
 import java.util.List;
 
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher.Event.EventType;
-import org.apache.zookeeper.ZooDefs;
 
 /**
  * Transaction viewed by a participant
@@ -62,14 +59,19 @@ class ParticipantTransaction extends BaseTransaction
 		{
 			state = TransactionState.COMMITTED;
 		}
-		else
+		else if (coordinatorState == TransactionState.ABORTED)
 		{
 			// abort if decision is not commit
 			state = TransactionState.ABORTED;
 		}
+		else
+		{
+			// coordinator haven't decided yet, we have to way further
+			return;
+		}
 		
 		// we have finished		
-		decisionReached();
+		finish();
 	}
 		
 	private void waitForCoordinatorDecision() throws InterruptedException 	
@@ -78,22 +80,26 @@ class ParticipantTransaction extends BaseTransaction
 		String coordData;
 
 		// gets coordinator decision
+		// TODO improve left alone watcher (when we know coordinator have decided)
 		coordData = readParticipantNode(coordinatorNodePath, true);
 		
-		if (coordData != null && coordData.length() > 0)
+		if (coordData != null)
 		{
 			analyseCoordinatorDecision(coordData);
 		}
-		// else... coordinator hasn't decided yet, let's wait the event
+		//else
+			// coordinator haven't created his node yet, we should wait
+			
 	}
 	
 	@Override
 	protected void nodeEvent(WatchedEvent event)
 	{
-		// the only event we are watching is data chage on coordinator's node
+		// the only event we are watching is data change on coordinator's node
 		EventType etype = event.getType();
 		
-		if (etype == EventType.NodeDataChanged)
+		// finally coordinator created his node or we decided
+		if (etype == EventType.NodeDataChanged || etype == EventType.NodeCreated)
 		{ 
 			try
 			{
@@ -123,11 +129,8 @@ class ParticipantTransaction extends BaseTransaction
 		createParticipantNode();
 			
 		// if user commits
-		if (handler.execute(getQuery()))
-		{
-			// we won't need the handler any more
-			handler = null;
-			
+		if (handler.execute(BaseTransaction.getTransactionID(zNodePath), getQuery()))
+		{		
 			// pre-commits a transaction
 			try
 			{			
@@ -148,6 +151,9 @@ class ParticipantTransaction extends BaseTransaction
 			try
 			{
 				abort();
+				
+				// we have finished		
+				finish();
 			}
 			catch(Exception e)
 			{
@@ -157,6 +163,14 @@ class ParticipantTransaction extends BaseTransaction
 			// when we abort, we can just ignore everything else
 		}
 	}	
+	
+	private void finish()
+	{
+		decisionReached();
+		
+		handler.result(BaseTransaction.getTransactionID(zNodePath), state == TransactionState.COMMITTED);
+		handler = null;
+	}
 
 	@Override
 	public void run()

@@ -11,10 +11,9 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooDefs;
-import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.data.Stat;
 
 /**
@@ -28,7 +27,6 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	
 	private BaseWatcher defaultWatcher;
 	private TransactionData data;
-	private Lock resultLock;
 	
 	protected String zNodePath;
 	protected ZooKeeper zkClient;
@@ -73,10 +71,6 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	{
 		this.state = TransactionState.PRESET;
 		this.defaultWatcher = new BaseWatcher();
-		this.resultLock = new ReentrantLock();
-		
-		// lock so anyone who tries to get the result will wait
-		resultLock.lock();
 	}
 	
 	private void createZnode(List<GroupMember> participants, Serializable query, String coordinatorID) throws InterruptedException
@@ -102,7 +96,7 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		try
 		{			
 			// we need a persistent node so it can have children
-			zkClient.create(zNodePath, data.toByteArray(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+			zNodePath = zkClient.create(zNodePath, data.toByteArray(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
 			
 			// now we create out znode
 			createParticipantNode();
@@ -153,7 +147,7 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	{
 		try
 		{
-			String myZnode = zNodePath + "/" + me.getName();
+			String myZnode = getPath(me.getName());
 			zkClient.setData(myZnode, data.getBytes(), -1);
 		} 
 		catch (KeeperException e)
@@ -266,8 +260,9 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	
 	/**
 	 * Reads a transaction child node data and sets a watch if asked to
+	 * CAUTION: node may not exists (see returned value)
 	 * @param childNodePath full path of child node
-	 * @param watch true to set the default watcher
+	 * @param watch true to set the default watcher - a watch is set on exists and getData calls.
 	 * @return read data - null if node does not exists
 	 * @throws InterruptedException 
 	 */
@@ -300,20 +295,20 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	}
 	
 	/**
-	 * Return the full path of a transaction child znode (paticipant znode)
-	 * @param childZnode
-	 * @return transaction_path + childzNode
+	 * Return the full path of a transaction participant node
+	 * @param participantID participantID (nothing more)
+	 * @return full path to participant node
 	 */
-	protected String getPath(String childZnode)
+	protected String getPath(String participantID)
 	{
-		return zNodePath + "/" + childZnode;
+		return zNodePath + "/" + participantID;
 	}
 	
 	/**
 	 * This method should be called when decision on whether commit or abort was reached.
 	 * CAUTION: this should be your last super call!!!
 	 */
-	protected void decisionReached()
+	protected final void decisionReached()
 	{
 		// avoid exception on double call
 		if (me == null)
@@ -328,15 +323,25 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		zkClient = null;
 		me = null;
 		
-		resultLock.unlock();
+		// wake everyone waiting for this result
+		synchronized (this)
+		{
+			notifyAll();	
+		}
 	}
 	
 	/**
 	 * ITransaction implementation
+	 * @throws InterruptedException 
 	 */
-	public boolean getResult()
+	public boolean getResult() throws InterruptedException
 	{
-		resultLock.lock();
+		synchronized (this)
+		{
+			// if decision has not yet been made, wait for it
+			if (state != TransactionState.COMMITTED && state != TransactionState.ABORTED)
+				wait();
+		}		
 		
 		// if we get here, a decision has been made
 		
@@ -389,7 +394,7 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		@Override
 		public void process(WatchedEvent event)
 		{
-			if (die)
+			if (die || event.getType() == EventType.None)
 				return;
 			
 			nodeEvent(event);
