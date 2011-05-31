@@ -100,6 +100,8 @@ public class Client extends Thread implements Watcher
 	    {
 			while (true)
 		    {
+				Thread.sleep(500);
+				
 				if (!listnerMessages.isEmpty())
 				{
 					System.out.println();
@@ -113,7 +115,7 @@ public class Client extends Thread implements Watcher
 				}
 					
 				if (stdin.ready())
-				{
+				{				
 					line = stdin.readLine().toLowerCase();
 					
 					String[] args = line.split(" "); 
@@ -139,7 +141,7 @@ public class Client extends Thread implements Watcher
 						String arg = args[1];
 						
 						if (arg.charAt(0) != '/')
-						    System.out.println("Lock must start with /");
+						    System.out.println("Path must start with /");
 						else
 						{
 							if (cmd.equals("join"))
@@ -158,6 +160,23 @@ public class Client extends Thread implements Watcher
 								usage();
 					    }
 					}
+					else if (args.length == 3)
+					{
+						String arg0 = args[1];
+						String arg1 = args[2];
+						
+						if (arg0.charAt(0) != '/')
+						    System.out.println("Path must start with /");
+						else
+						{
+							if (cmd.equals("begin"))
+							{
+								beginTrans(arg0, arg1);
+							}
+							else
+								usage();
+						}
+					}
 					
 					bash();
 				}
@@ -166,7 +185,12 @@ public class Client extends Thread implements Watcher
 		catch (IOException e)
 	    {
 			e.printStackTrace();
-	    }
+	    } 
+		catch (InterruptedException e)
+		{
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 		
 		try 
 		{
@@ -180,7 +204,36 @@ public class Client extends Thread implements Watcher
 		dead = true;
     }
     
-    private void bash()
+    private void beginTrans(String grupPath, String query)
+	{
+		try
+		{
+			TransactionGroup g = null;
+			
+			for (TransactionGroup tg : groupList)
+			{
+				if (tg.getGroupPath().equals(grupPath))
+				{
+					g = tg;
+					break;
+				}
+			}
+			
+			if (g == null)
+				System.out.println("You aren't a member of '" + grupPath + "'.");
+			else
+			{
+				g.BeginTransaction(query, null);
+			}
+		}
+		catch(Exception e)
+		{
+			e.printStackTrace();
+		}
+		
+	}
+
+	private void bash()
     {
     	String myID = String.valueOf(zk.getSessionId());
     	System.out.print("[client-" + myID + "@zookeper]$ ");
@@ -190,6 +243,7 @@ public class Client extends Thread implements Watcher
     {
     	System.out.println("Usage:");
 		System.out.println("join /groupPath - join group");
+		System.out.println("begin /groupPath query - join group");
 		System.out.println("leave /groupPath - leave group");
 		System.out.println("ls /path - show znode list on 'path'");
 		System.out.println("quit - exits");

@@ -59,7 +59,7 @@ public final class TransactionGroup
 		this.handler = handler;
 		this.members = new Hashtable<String, GroupMember>();
 		this.disposed = false;
-		this.lastTransactionID = 0;
+		this.lastTransactionID = -1;
 		this.transactionSyncLock = new Object();
 		this.threadPool = java.util.concurrent.Executors.newCachedThreadPool();
 	}
@@ -235,10 +235,11 @@ public final class TransactionGroup
 			return;
 		
 		List<String> transactions = null;
+		String fullPathPrefix = groupPath + "/" + transactionZnode;		
 		
 		try 
 		{
-			transactions = zkClient.getChildren(groupPath + "/" + transactionZnode, watcher);
+			transactions = zkClient.getChildren(fullPathPrefix, watcher);
 		} 
 		catch (KeeperException e) 
 		{
@@ -250,10 +251,11 @@ public final class TransactionGroup
 		
 		// sort transactions
 		BaseTransaction.sortTransactionList(transactions);
+		fullPathPrefix += "/";
 		
 		synchronized (this.transactionSyncLock)
 		{
-			long tid = 0;
+			long tid = -1;
 			
 			// for each transaction
 			for (String t : transactions)
@@ -264,7 +266,7 @@ public final class TransactionGroup
 				if (tid > lastTransactionID)
 				{
 					// we can't stall here as we're holding a lock
-					participate(t);
+					participate(fullPathPrefix + t);
 				}
 			}
 			
@@ -388,6 +390,9 @@ public final class TransactionGroup
 	 */
 	public ITransaction BeginTransaction(Serializable query, List<GroupMember> allowedParticipants) throws InterruptedException
 	{
+		if (allowedParticipants == null)
+			allowedParticipants = getMembers();
+		
 		CoordinatorTransaction ct = new CoordinatorTransaction(query, me, allowedParticipants);
 		
 		queueTransaction(ct);
@@ -418,7 +423,7 @@ public final class TransactionGroup
 	
 	
 	/////////////////////////////
-	//// WATCHERS  ///////////////
+	//// WATCHER  ///////////////
 	/////////////////////////////
 		
 	/**
@@ -429,14 +434,11 @@ public final class TransactionGroup
 	{
 		private TransactionGroup group;
 		private boolean die;		
-		private String groupMemberZnodePath;
-		private String transactionZnodePath;
 		
 		public TransactionGroupWatcher(TransactionGroup group)
 		{
 			this.group = group;
 			this.die = false;
-			this.groupMemberZnodePath = group.getGroupPath() + "/" + TransactionGroup.groupZnode;
 		}
 		
 		/***

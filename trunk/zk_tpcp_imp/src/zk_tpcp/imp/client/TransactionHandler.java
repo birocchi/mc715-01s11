@@ -10,7 +10,7 @@ public class TransactionHandler implements ITransactionHandler
 	@Override
 	public boolean execute(Serializable arg0)
 	{
-		System.out.println("Opa, transacao");
+		System.out.println("Opa, chegou transacao. Query: " + arg0.toString());
 		
 		return false;
 	}
