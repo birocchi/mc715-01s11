@@ -103,7 +103,7 @@ class CoordinatorTransaction extends BaseTransaction
 			oldState = participants.get(participantID);
 			
 			if (oldState == TransactionState.PRESET || oldState == TransactionState.SET)
-			{
+			{				
 				participants.put(participantID, newState);
 				
 				// if this is the first time a participant shows up, we should count him in
@@ -217,13 +217,13 @@ class CoordinatorTransaction extends BaseTransaction
 		
 		try
 		{
-			if (path.length() == 0)
+			if (path.startsWith(transactionNodePrefix))
 			{
 				// it's transaction root znode
 				// get children changed event
 				if (etype == EventType.NodeChildrenChanged)
 				{
-					greetNewParticipants();					
+					greetNewParticipants();
 				}
 			}
 			else
@@ -232,6 +232,12 @@ class CoordinatorTransaction extends BaseTransaction
 				// get data changed event
 				if (etype == EventType.NodeDataChanged)
 				{
+					updateParticipantState(path);
+				}
+				else if (etype == EventType.NodeDeleted)
+				{
+					// damn a participant has crashed - let's update his state
+					// if he crashed after voting, we still have a change to commit
 					updateParticipantState(path);
 				}
 			}
