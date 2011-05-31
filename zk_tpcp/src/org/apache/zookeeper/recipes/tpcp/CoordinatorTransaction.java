@@ -8,8 +8,6 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher.Event.EventType;
 
-import sun.security.util.Debug;
-
 /**
  * Transaction viewed by the coordinator
  *
@@ -44,8 +42,10 @@ class CoordinatorTransaction extends BaseTransaction
 		for (GroupMember gm : participants)
 			this.participants.put(gm.getName(), TransactionState.PRESET);
 		
-		this.participantVotes = 0;
-		this.participantsGreeted = 0;
+		// we assume coordinator has already pre-commited
+		this.participants.put(me.getName(), TransactionState.PRE_COMMITTED);
+		this.participantVotes = 1;
+		this.participantsGreeted = 1;
 		
 		this.syncLock = new Object();
 	}
@@ -69,8 +69,8 @@ class CoordinatorTransaction extends BaseTransaction
 		}
 
 		if (oldState == null)
-		{
-			Debug.println("Coordinator: ", "Invalid participant '"+participantID+"' on transaction '"+zNodePath+"'");
+		{			
+			System.err.println("Invalid participant '"+participantID+"' on transaction '"+zNodePath+"'");
 			return;
 		}
 		else if (oldState == TransactionState.ABORTED || oldState == TransactionState.PRE_COMMITTED)
@@ -85,12 +85,21 @@ class CoordinatorTransaction extends BaseTransaction
 		
 		// it's up to me to retrieve the znode state
 		// we can't a priori know the participant actual state thus we can't know if we should set a watch or not
-		// TODO: there's an issue here: left alone watcher - find a way to avoid the last watch (which is left alone) 
-		newState = TransactionState.parse(readParticipantNode(getPath(participantID), true));
+		// TODO: there's an issue here: left alone watcher - find a way to avoid the last watch (which is left alone)
+		String voteData = readParticipantNode(getPath(participantID), true);
+		
+		if (voteData == null)
+		{
+			// damn! participant crashed (ephemeral node was deleted)
+			// we should abort
+			newState = TransactionState.ABORTED;
+		}
+		else
+			newState = TransactionState.parse(voteData);
 
 		synchronized (this.syncLock)
 		{
-			// avoid any unexpected issue
+			// old state maybe out sync
 			oldState = participants.get(participantID);
 			
 			if (oldState == TransactionState.PRESET || oldState == TransactionState.SET)
@@ -119,19 +128,19 @@ class CoordinatorTransaction extends BaseTransaction
 						if (participantVotes == participants.size())
 						{
 							commit(false);
-							decisionReached();
+							finish();
 						}
 					}
 					else if (newState == TransactionState.ABORTED)
 					{
 						// can decide already
 						abort();			
-						decisionReached();
+						finish();
 					}
 				}
 				catch(Exception e)
 				{
-					Debug.println("COORDINATOR: ", "Double decision, prog. error");
+					System.err.println("Double decision, prog. error");
 				}
 			}
 		}
@@ -188,11 +197,12 @@ class CoordinatorTransaction extends BaseTransaction
 		}
 	}
 	
-	@Override
-	protected void decisionReached()
+	private void finish()
 	{
 		// free what we don't need anymore
 		participants = null;
+		
+		decisionReached();
 	}
 
 	@Override
@@ -216,7 +226,7 @@ class CoordinatorTransaction extends BaseTransaction
 					greetNewParticipants();					
 				}
 			}
-			else if (path.startsWith(transactionNodePrefix))
+			else
 			{
 				// it's a participant node
 				// get data changed event

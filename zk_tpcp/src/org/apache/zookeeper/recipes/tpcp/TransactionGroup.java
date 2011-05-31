@@ -3,13 +3,9 @@ package org.apache.zookeeper.recipes.tpcp;
 import java.io.Serializable;
 import java.security.InvalidParameterException;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Hashtable;
-import java.util.Iterator;
 import java.util.List;
-import java.util.SortedSet;
 import java.util.concurrent.ExecutorService;
 
 import org.apache.zookeeper.CreateMode;
@@ -21,9 +17,6 @@ import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooKeeper.States;
-import org.apache.zookeeper.data.ACL;
-
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 // TODO set watcher on transaction node and call participate
 // TODO make facade class for znode operations
@@ -409,7 +402,8 @@ public final class TransactionGroup
 	 * @throws GroupException when zkClient is already a member of groupPath
 	 * @throws InterruptedException 
 	 */
-	public static TransactionGroup joinGroup(String groupPath, ZooKeeper zkClient, ITransactionHandler handler) throws GroupException, InterruptedException
+	public static TransactionGroup joinGroup(String groupPath, 
+			ZooKeeper zkClient, ITransactionHandler handler) throws GroupException, InterruptedException
 	{	
 		TransactionGroup g = new TransactionGroup(groupPath, zkClient, handler);
 		
@@ -488,7 +482,7 @@ public final class TransactionGroup
 		@Override
 		public void process(WatchedEvent event) 
 		{
-			if (die)
+			if (die || event.getType() == EventType.None)
 				return;
 			
 			String fullPath = event.getPath();

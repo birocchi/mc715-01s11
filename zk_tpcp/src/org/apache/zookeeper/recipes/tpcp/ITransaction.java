@@ -9,8 +9,9 @@ public interface ITransaction
 	/**
 	 * Blocking call to get transaction result.
 	 * @return true for committed, false for aborted
+	 * @throws InterruptedException if thread execution was interrupted
 	 */
-	public boolean getResult();
+	public boolean getResult() throws InterruptedException;
 	
 	/**
 	 * Nonblocking call to get transaction result.
