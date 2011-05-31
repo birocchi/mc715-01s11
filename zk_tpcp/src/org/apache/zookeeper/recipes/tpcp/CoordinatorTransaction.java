@@ -3,6 +3,8 @@ package org.apache.zookeeper.recipes.tpcp;
 import java.io.Serializable;
 import java.util.List;
 
+import org.apache.zookeeper.WatchedEvent;
+
 /**
  * Transaction viewed by the coordinator
  *
@@ -38,5 +40,12 @@ class CoordinatorTransaction extends BaseTransaction
 		{
 			// TODO handle this
 		}
+	}
+
+	@Override
+	protected void nodeEvent(WatchedEvent event)
+	{
+		// TODO Auto-generated method stub
+		
 	}
 }

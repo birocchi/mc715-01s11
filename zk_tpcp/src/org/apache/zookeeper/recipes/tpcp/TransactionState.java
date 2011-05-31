@@ -45,5 +45,10 @@ enum TransactionState
 		{
 			return "c";
 		}
-	},
+	};
+	
+	public static TransactionState parse(String state)
+	{
+		return TransactionState.valueOf(state);
+	}
 }

@@ -4,6 +4,8 @@ import java.util.List;
 
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooDefs;
 
 /**
@@ -23,34 +25,89 @@ class ParticipantTransaction extends BaseTransaction
 	
 	private boolean canParticipate()
 	{
+		boolean canParticipate = false;
 		List<String> pList = getParticipants();
 		
 		if (pList == null)
-			return true;
+			canParticipate = true;
+		else
+		{		
+			String myID = me.getName();
+			
+			for (String p : pList)
+				if (p.equals(myID))
+				{
+					canParticipate = true;
+					break;
+				}			
+		}
 		
-		String myID = me.getName();
+		if (canParticipate)
+		{
+			// TODO: this can be improved with a list of own transactions on TransactionGroup and verify if a transaction is in that list
+			// during watcher process - so we don't need to load znode's data
+			
+			// we shouldn't participate on our own transaction (those we are coordinator)
+			canParticipate = !me.getName().equals(getCoordinatorID());				
+		}
 		
-		for (String p : pList)
-			if (p.equals(myID))
-				return true;
-		
-		return false;
+		return canParticipate;
 	}
 	
-	private void createParticipantNode() throws InterruptedException
+	private void analyseCoordinatorDecision(String decision)
 	{
-		try
-		{
-			String participantNodePath = zNodePath + "/" + me.getName();
+		TransactionState coordinatorState = TransactionState.parse(decision);
 		
-			// creates our znode with no data
-			zkClient.create(participantNodePath, null, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
-			
-			this.state = TransactionState.SET;
-		}
-		catch(KeeperException zkEx)
+		if (coordinatorState == TransactionState.COMMITTED)
 		{
-			// TODO handle this
+			state = TransactionState.COMMITTED;
+		}
+		else
+		{
+			// abort if decision is not commit
+			state = TransactionState.ABORTED;
+		}
+		
+		// we have finished		
+		decisionReached();
+	}
+		
+	private void waitForCoordinatorDecision() throws InterruptedException 	
+	{
+		String coordinatorNodePath = getPath(getCoordinatorID());
+		String coordData;
+
+		// gets coordinator decision
+		coordData = readParticipantNode(coordinatorNodePath, true);
+		
+		if (coordData != null && coordData.length() > 0)
+		{
+			analyseCoordinatorDecision(coordData);
+		}
+		// else... coordinator hasn't decided yet, let's wait the event
+	}
+	
+	@Override
+	protected void nodeEvent(WatchedEvent event)
+	{
+		// the only event we are watching is data chage on coordinator's node
+		EventType etype = event.getType();
+		
+		if (etype == EventType.NodeDataChanged)
+		{ 
+			try
+			{
+				waitForCoordinatorDecision();
+			} 
+			catch (InterruptedException e)
+			{
+				// TODO do something - this is critical!
+			}
+		}
+		else if (etype == EventType.NodeDeleted)
+		{
+			// damn, coordinator died, we should abort
+			analyseCoordinatorDecision(TransactionState.ABORTED.toString());
 		}
 	}
 	
@@ -68,10 +125,15 @@ class ParticipantTransaction extends BaseTransaction
 		// if user commits
 		if (handler.execute(getQuery()))
 		{
+			// we don't need the handler any more
+			handler = null;
+			
 			// pre-commits a transaction
 			try
-			{
+			{			
 				commit(true);
+				
+				waitForCoordinatorDecision();
 			}
 			catch(Exception e)
 			{
@@ -94,7 +156,7 @@ class ParticipantTransaction extends BaseTransaction
 			
 			// when we abort, we can just ignore everything else
 		}
-	}
+	}	
 
 	@Override
 	public void run()

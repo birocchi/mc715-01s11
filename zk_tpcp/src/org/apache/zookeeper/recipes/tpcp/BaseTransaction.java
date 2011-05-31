@@ -4,9 +4,14 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.ZooKeeper;
@@ -21,11 +26,13 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	private static final List<String> emptyParticipantList = new ArrayList<String>(0);
 	private static final String transactionNodePrefix = "t";
 	
+	private BaseWatcher defaultWatcher;
+	private TransactionData data;
+	private Lock resultLock;
+	
 	protected String zNodePath;
 	protected ZooKeeper zkClient;
-	protected GroupMember me;
-	
-	private TransactionData data;
+	protected GroupMember me;	
 	protected TransactionState state;
 	
 	/**
@@ -39,7 +46,7 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	public BaseTransaction(Serializable query, GroupMember coordinator, 
 			List<GroupMember> participants) throws InterruptedException
 	{
-		this.state = TransactionState.PRESET;
+		initialize();
 		
 		this.me = coordinator;
 		this.zkClient = coordinator.getGroup().getZkClient();
@@ -54,11 +61,22 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	 */
 	public BaseTransaction(String zNodePath, GroupMember participant) throws InterruptedException
 	{
-		this.state = TransactionState.PRESET;
+		initialize();
 		
 		this.me = participant;
 		this.zkClient = me.getGroup().getZkClient();
+		this.zNodePath = zNodePath;
 		readZnode();
+	}
+	
+	private void initialize()
+	{
+		this.state = TransactionState.PRESET;
+		this.defaultWatcher = new BaseWatcher();
+		this.resultLock = new ReentrantLock();
+		
+		// lock so anyone who tries to get the result will wait
+		resultLock.lock();
 	}
 	
 	private void createZnode(List<GroupMember> participants, Serializable query, String coordinatorID) throws InterruptedException
@@ -85,6 +103,9 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		{			
 			// we need a persistent node so it can have children
 			zkClient.create(zNodePath, data.toByteArray(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+			
+			// now we create out znode
+			createParticipantNode();
 			
 			this.state = TransactionState.SET;
 		}
@@ -210,13 +231,116 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	}
 	
 	/**
+	 * This method is called for events watched with getDefaultWatcher 
+	 * @param event
+	 */
+	protected abstract void nodeEvent(WatchedEvent event);
+	
+	/**
+	 * Get default watcher.
+	 * @return
+	 */
+	protected Watcher getDefaultWatcher()
+	{
+		return defaultWatcher;
+	}
+	
+	/**
+	 * Creates a transaction child node with id equals me.getName()
+	 * @throws InterruptedException
+	 */
+	protected void createParticipantNode() throws InterruptedException
+	{
+		try
+		{
+			String participantNodePath = getPath(me.getName());
+		
+			// creates our znode with no data
+			zkClient.create(participantNodePath, null, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+		}
+		catch(KeeperException zkEx)
+		{
+			// TODO handle this
+		}
+	}
+	
+	/**
+	 * Reads a transaction child node data and sets a watch if asked to
+	 * @param childNodePath full path of child node
+	 * @param watch true to set the default watcher
+	 * @return read data - null if node does not exists
+	 * @throws InterruptedException 
+	 */
+	protected String readParticipantNode(String childNodePath, boolean watch) throws InterruptedException
+	{
+		String data = null;
+		
+		try
+		{
+			Stat s = zkClient.exists(childNodePath, false);
+			
+			if (s != null)
+			{
+				byte[] zdata;
+				
+				if (watch)
+					zdata = zkClient.getData(childNodePath, defaultWatcher, s);
+				else
+					zdata = zkClient.getData(childNodePath, false, s);
+				
+				data = new String(zdata);
+			}
+		}
+		catch(KeeperException zkEx)
+		{
+			// TODO handle this
+		}
+		
+		return data;
+	}
+	
+	/**
+	 * Return the full path of a transaction child znode (paticipant znode)
+	 * @param childZnode
+	 * @return transaction_path + childzNode
+	 */
+	protected String getPath(String childZnode)
+	{
+		return zNodePath + "/" + childZnode;
+	}
+	
+	/**
+	 * This method should be called when decision on whether commit or abort was reached.
+	 * CAUTION: this should be your last super call!!!
+	 */
+	protected void decisionReached()
+	{
+		// avoid exception on double call
+		if (me == null)
+			return;
+		
+		// we have finished
+		defaultWatcher.die();
+		
+		defaultWatcher = null;
+		data = null;	
+		zNodePath = null;
+		zkClient = null;
+		me = null;
+		
+		resultLock.unlock();
+	}
+	
+	/**
 	 * ITransaction implementation
 	 */
 	public boolean getResult()
-	{	
-		// TODO todo, can't call before calling commit or rollback
+	{
+		resultLock.lock();
 		
-		return false;
+		// if we get here, a decision has been made
+		
+		return state == TransactionState.COMMITTED;
 	}
 	
 	/**
@@ -229,11 +353,9 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		String tid;
 		int index;
 		
-		index = transactionZnode.lastIndexOf('/');
-		if (index == -1)
-			tid = transactionZnode;
-		else
-			tid = transactionZnode.substring(index+1);
+		// plus 1 to skip initial 't' char
+		index = transactionZnode.lastIndexOf('/') + 1;
+		tid = transactionZnode.substring(index+1);
 		
 		return new Long(tid);
 	}
@@ -246,5 +368,31 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	{
 		// as simple as this ;)
 		Collections.sort(transactionList);
+	}
+	
+	/////////////////////////////
+	//// WATCHER  ///////////////
+	/////////////////////////////
+		
+	/**
+	 * Watcher for data change
+	 */
+	private class BaseWatcher implements Watcher 
+	{		
+		private volatile boolean die = false;
+		
+		public void die()
+		{
+			die = true;
+		}
+		
+		@Override
+		public void process(WatchedEvent event)
+		{
+			if (die)
+				return;
+			
+			nodeEvent(event);
+		}		
 	}
 }
