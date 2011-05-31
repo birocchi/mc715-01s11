@@ -125,7 +125,7 @@ class ParticipantTransaction extends BaseTransaction
 		// if user commits
 		if (handler.execute(getQuery()))
 		{
-			// we don't need the handler any more
+			// we won't need the handler any more
 			handler = null;
 			
 			// pre-commits a transaction
@@ -147,7 +147,7 @@ class ParticipantTransaction extends BaseTransaction
 		{
 			try
 			{
-				rollback();
+				abort();
 			}
 			catch(Exception e)
 			{

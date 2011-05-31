@@ -24,7 +24,7 @@ import org.apache.zookeeper.data.Stat;
 abstract class BaseTransaction implements ITransaction, Runnable
 {
 	private static final List<String> emptyParticipantList = new ArrayList<String>(0);
-	private static final String transactionNodePrefix = "t";
+	protected static final String transactionNodePrefix = "t";
 	
 	private BaseWatcher defaultWatcher;
 	private TransactionData data;
@@ -33,7 +33,7 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	protected String zNodePath;
 	protected ZooKeeper zkClient;
 	protected GroupMember me;	
-	protected TransactionState state;
+	protected volatile TransactionState state;
 	
 	/**
 	 * Coordinator constructor.
@@ -219,7 +219,7 @@ abstract class BaseTransaction implements ITransaction, Runnable
 	 * If anyone aborts the transaction, it will be aborted disregarding the rest votes.
 	 * @throws Exception when another action (rollback or commit) was previously taken.
 	 */
-	protected void rollback() throws Exception
+	protected void abort() throws Exception
 	{
 		if (state == TransactionState.SET)
 		{
@@ -255,8 +255,8 @@ abstract class BaseTransaction implements ITransaction, Runnable
 		{
 			String participantNodePath = getPath(me.getName());
 		
-			// creates our znode with no data
-			zkClient.create(participantNodePath, null, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+			// creates our znode with SET state (meaning we are ready)
+			zkClient.create(participantNodePath, TransactionState.SET.toString().getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
 		}
 		catch(KeeperException zkEx)
 		{
